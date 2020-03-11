@@ -41,8 +41,8 @@ library(scales)
 ```
 
 ```{r leitura, message=FALSE, warning=FALSE}
-projecao_mulheres <- read_csv("~/datasets/IBGE/ProjecaoPopulacao/projecao-rev2018-mulheres-populacao-2000-2060.csv")
-projecao_homens <- read_csv("~/datasets/IBGE/ProjecaoPopulacao/projecao-rev2018-homens-populacao-2000-2060.csv")
+projecao_mulheres <- read_csv("data/projecao-rev2018-mulheres-populacao-2000-2060.csv")
+projecao_homens <- read_csv("data/projecao-rev2018-homens-populacao-2000-2060.csv")
 
 ```
 
