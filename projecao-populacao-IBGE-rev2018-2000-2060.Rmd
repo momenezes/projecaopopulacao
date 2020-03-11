@@ -1,0 +1,185 @@
+---
+title: "Projeção de Crescimento da População Brasileira"
+author: "Mário O. de Menezes"
+date: "28 de março de 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Estudo do crescimento da população brasileira
+
+Este pequeno estudo teve como motivação um _post_ que vi no LinkedIn em 28 de março de 2019, que mostrava uma animação sobre o crescimento da população brasileira, destacando a quantidade de pessoas na faixa considerada economicamente ativa, isto é, que pagam a Previdência. 
+
+O contexto do post era exatamente a discussão sobre a Reforma da Previdência, e o autor tentava evidenciar a necessidade da reforma utilizando a pirâmide da população até 2060.
+
+O link do post é: https://www.linkedin.com/feed/update/urn:li:activity:6515943618824404992
+
+## Baixando os dados
+
+O IBGE disponibiliza os dados de projeção da população de forma bastante detalhada em seu site. A página que trata da População é https://www.ibge.gov.br/estatisticas-novoportal/sociais/populacao.html
+
+A partir desta página podemos chegar à página das projeções da população, cujo link é https://www.ibge.gov.br/estatisticas-novoportal/sociais/populacao/9109-projecao-da-populacao.html
+
+Vamos então fazer o download dos dados. Utilizaremos a Revisão de 2018 e baixamos os dados em formato *ods*.
+A planilha contém diversas abas e uma delas é de projeções para homens, mulheres, total, e por faixas etárias, que é nosso interesse.
+
+O arquivo baixado é `projecoes_2018_populacao_2010_2060.ods`. Para facilitar, criei 2 arquivos em CSV com os dados de interesse: projeção para mulheres (`projecao-rev2018-mulheres-populacao-2000-2060.csv`) e projeção para homens (`projecao-rev2018-homens-populacao-2000-2060.csv`).
+
+## Leitura dos dados
+
+Vamos ler os dados e examiná-los.
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(gganimate)
+library(ggpubr)
+library(glue)
+library(scales)
+```
+
+```{r leitura, message=FALSE, warning=FALSE}
+projecao_mulheres <- read_csv("~/datasets/IBGE/ProjecaoPopulacao/projecao-rev2018-mulheres-populacao-2000-2060.csv")
+projecao_homens <- read_csv("~/datasets/IBGE/ProjecaoPopulacao/projecao-rev2018-homens-populacao-2000-2060.csv")
+
+```
+
+## Pequeno exame dos dados
+
+```{r}
+head(projecao_mulheres)
+```
+
+## Acertando os dados para o formato "tidy"
+
+Os dados do IBGE vem no formato *wide*, precisamos organizá-los em formato *long*. Além desta organização, vamos adicionar uma coluna *Sexo* para podermos unificar as bases mas distinguindo as informações de cada sexo. 
+
+Também vamos adicionar uma coluna com o valor proporcional em relação à população. Faremos isso para as duas bases, Homens e Mulheres. Como queremos esta proporção em relação à população total, vamos ter que manipular um pouco as bases, criando alguns conjuntos intermediários para este cálculo. 
+
+
+### Base dos Homens
+
+```{r}
+popHomens <- projecao_homens %>% gather("Ano","Populacao", 2:52,)
+popHomens <- popHomens %>% mutate(Sexo = "Homens") 
+names(popHomens) <- c("FxEtaria","Ano","PopulacaoH","Sexo")
+popHomens <- as_tibble(popHomens)
+populacoes <- select(popHomens,FxEtaria,Ano,PopulacaoH)
+```
+
+Rápida inspeção
+
+```{r}
+head(popHomens)
+```
+
+```{r}
+head(populacoes)
+```
+
+### Base das Mulheres
+
+```{r}
+popMulheres <- projecao_mulheres %>% gather("Ano","Populacao",2:52)
+popMulheres <- popMulheres %>% mutate(Sexo = "Mulheres")
+names(popMulheres) <- c("FxEtaria","Ano","PopulacaoM","Sexo")
+popMulheres <- as_tibble(popMulheres)
+populacoes <- left_join(populacoes, select(popMulheres, FxEtaria, Ano, PopulacaoM), by = c("FxEtaria"="FxEtaria", "Ano" = "Ano"))
+```
+
+```{r}
+head(popMulheres)
+```
+
+```{r}
+head(populacoes)
+```
+
+
+Agora os cálculos das proporções das populações, para cada faixa etária, para cada ano e por gênero.
+
+```{r}
+PopTotais <- filter(populacoes, FxEtaria == "Total")
+PopTotais <- mutate(PopTotais, PopulacaoT = PopulacaoH + PopulacaoM)
+anos <- populacoes$Ano
+for (ano in unique(anos)) {
+  populacoes[which(populacoes$Ano == ano),"PopulacaoT"] = PopTotais[which(PopTotais$Ano == ano),"PopulacaoT"]
+}
+popProps <- mutate(populacoes, PopulacaoPropH = PopulacaoH/PopulacaoT, PopulacaoPropM = PopulacaoM/PopulacaoT) 
+head(popProps)
+```
+
+
+## Juntando as bases
+
+Uma modificação importante que fazemos é deixar os valores relativos aos **Homens** todos como **negativos**. Isso nos permitirá plotar as barras de Homens e Mulheres ao mesmo tempo, uma para cada direção.
+
+
+```{r}
+popBRM <- full_join(popMulheres,select(popProps, FxEtaria, Ano, PopulacaoM, PopulacaoT, PopulacaoPropM) , by =c("FxEtaria" = "FxEtaria","Ano"= "Ano", "PopulacaoM" = "PopulacaoM"))
+popBRH <- full_join(popHomens,select(popProps, FxEtaria, Ano, PopulacaoH, PopulacaoT, PopulacaoPropH) , by =c("FxEtaria" = "FxEtaria","Ano"= "Ano", "PopulacaoH" = "PopulacaoH"))
+popBRH <- mutate(popBRH, PopulacaoH = -1 * PopulacaoH)
+popBR <- full_join(popBRM,popBRH,by = c("FxEtaria" = "FxEtaria", "Ano" = "Ano", "Sexo" = "Sexo","PopulacaoT" = "PopulacaoT"))
+popBR <- mutate(popBR, Populacao = coalesce(popBR$PopulacaoM,popBR$PopulacaoH), PopulacaoProp = coalesce(popBR$PopulacaoPropM,popBR$PopulacaoPropH))
+popBR <- select(popBR, -PopulacaoM, -PopulacaoH, -PopulacaoPropM, -PopulacaoPropH)
+popBR$Sexo = as.factor(popBR$Sexo)
+popBR$Sexo <- relevel(popBR$Sexo, "Mulheres")
+```
+
+Removendo as linhas onde tem os totais da população para cada ano, já que não precisamos deste valor.
+
+```{r}
+popBR <- popBR %>% filter(FxEtaria != "Total")
+```
+
+
+Pequeno exame para nos certificarmos de que está como planejado.
+
+```{r}
+head(popBR)
+```
+
+```{r}
+tail(popBR)
+```
+
+## Gráficos da população
+
+Uma maneira muito comum de se mostrar a distribuição da população em termos de faixas etárias é através de gráficos de pirâmides.
+
+No **ggplot2** construimos estes gráficos utilizando o artifício dos sinais invertidos dos sexos: Masculino tudo negativo e Feminino tudo positivo. Com isso temos barras que vão na direção oposta e com uma rotação no sistema de coordenadas colocamos na posição desejada, como mostrado no gráfico abaixo.
+
+### Exemplo de gráfico para o ano 2010
+
+```{r}
+ggplot(data = filter(popBR, Ano == "2010"), aes(x = as_factor(FxEtaria), y = Populacao, fill = Sexo, group = Populacao)) +
+  geom_bar(stat = "identity", width=0.7) + 
+  scale_y_continuous(breaks = seq(-10000000,10000000,1000000),
+                     labels = paste0(as.character(c(10:0,1:10))," ")) +
+  geom_text( aes(label = scales::percent(round(PopulacaoProp,3), acuracy = 0.1), y = Populacao + 500000*sign(Populacao) , group = Populacao),  color="black", size=2.5) +
+  geom_vline(aes(xintercept = 4.5), color = "yellow" ) + geom_vline(aes(xintercept = 11.5), color = "green") +
+  labs_pubr() + labs(y = "População (Milhões)", x = "Faixa Etária (anos)") + theme_pubr() + theme(legend.position = c(0.1,.9), legend.title = element_blank()) +
+  coord_flip() 
+```
+
+
+E agora, o objetivo deste artigo: gerar uma animação com os gráficos dos vários anos disponibilizados na projeção do IBGE. 
+
+Para isso, vamos utilizar o pacote **gganimate**, que gera, a partir de uma sequência de gráficos do **ggplot2**, uma animação (GIF, MP4, etc) muito legal e intuitiva.
+
+
+```{r}
+knitr::opts_chunk$set(cache = TRUE, message = FALSE, warning = FALSE, fig.show = "animate")
+p <- ggplot(data = popBR, aes(x = as_factor(FxEtaria), y = Populacao, fill = Sexo, group = Populacao)) +
+  geom_bar(stat = "identity", width = 0.7) +
+  scale_y_continuous(breaks = seq(-10000000,10000000,1000000),
+                     labels = paste0(as.character(c(10:0,1:10))," ")) +
+  geom_text(aes(label=scales::percent(round(PopulacaoProp,3), acuracy = 0.1), y = Populacao + 500000*sign(Populacao) , group = Populacao), color="black", size=2.5) +
+  geom_vline(aes(xintercept = 4.5), color = "yellow" ) + geom_vline(aes(xintercept = 11.5), color = "green") +
+  coord_flip()  
+p <- p + transition_states(Ano) + labs_pubr() + labs(x = "Faixa Etária (anos)", y = "População (Milhões)") + theme_pubr() +  theme(legend.position = c(0.1,.9), legend.title = element_blank()) +
+ggtitle('Pirâmide Etária em {closest_state}', subtitle = 'Como percentual da população total, por sexo') +  ease_aes('linear') 
+animate(p, fps = 3)
+```
